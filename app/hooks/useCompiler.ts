@@ -42,6 +42,7 @@ type UseCompilerParams = {
 
 const CODE_LIMIT = 100_000;
 const POLL_INTERVAL_MS = 800;
+const AUTOSAVE_DEBOUNCE_MS = 2500;
 
 const EXTENSION_LANGUAGE_HINTS: Record<string, string[]> = {
   py: ["python"],
@@ -152,8 +153,7 @@ export function useCompiler({
   const [filesLoading, setFilesLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const loadedUserRef = useRef<string>("");
-
+  const loadedUserRef = useRef<string>("");  const sessionFetchedRef = useRef(false);
   const activeFile = useMemo(
     () => files.find((file) => file.id === activeFileId),
     [activeFileId, files]
@@ -241,6 +241,7 @@ export function useCompiler({
     async function loadUserFiles() {
       if (!isAuthenticated || !userEmail) {
         loadedUserRef.current = "";
+        sessionFetchedRef.current = false;
         setFiles((previous) => {
           if (previous.length > 0) {
             return previous;
@@ -251,7 +252,8 @@ export function useCompiler({
         return;
       }
 
-      if (loadedUserRef.current === userEmail) {
+      // Only fetch once per session for the current user
+      if (sessionFetchedRef.current && loadedUserRef.current === userEmail) {
         return;
       }
 
@@ -283,6 +285,7 @@ export function useCompiler({
         }
 
         loadedUserRef.current = userEmail;
+        sessionFetchedRef.current = true;
       } catch {
         if (!cancelled) {
           setOutput("Failed to load saved files.");
@@ -442,17 +445,25 @@ export function useCompiler({
       return;
     }
 
+    const snapshot = {
+      id: dirtyFile.id,
+      dbId: dirtyFile.dbId,
+      name: dirtyFile.name,
+      language: dirtyFile.language,
+      code: dirtyFile.code,
+    };
+
     const timer = setTimeout(async () => {
       const payload = {
-        name: dirtyFile.name,
-        language: dirtyFile.language,
-        code: dirtyFile.code,
+        name: snapshot.name,
+        language: snapshot.language,
+        code: snapshot.code,
       };
 
       try {
         setSaving(true);
-        const response = dirtyFile.dbId
-          ? await updateUserFile(dirtyFile.dbId, payload)
+        const response = snapshot.dbId
+          ? await updateUserFile(snapshot.dbId, payload)
           : await createUserFile(payload);
 
         const saved = response?.file as PersistedCodeFile | undefined;
@@ -463,29 +474,30 @@ export function useCompiler({
 
         setFiles((previous) =>
           previous.map((file) =>
-            file.id === dirtyFile.id
+            file.id === snapshot.id
               ? {
                   ...file,
-                  id: saved.id,
+                  id: file.dbId ? file.id : saved.id,
                   dbId: saved.id,
-                  name: saved.name,
-                  language: saved.language,
-                  code: saved.code,
-                  isDirty: false,
+                  // Keep the local file content authoritative while typing.
+                  isDirty:
+                    file.name !== snapshot.name ||
+                    file.language !== snapshot.language ||
+                    file.code !== snapshot.code,
                 }
               : file
           )
         );
 
         setActiveFileId((previousId) =>
-          previousId === dirtyFile.id ? saved.id : previousId
+          previousId === snapshot.id && !snapshot.dbId ? saved.id : previousId
         );
       } catch {
         setOutput("Autosave failed.");
       } finally {
         setSaving(false);
       }
-    }, 900);
+    }, AUTOSAVE_DEBOUNCE_MS);
 
     return () => {
       clearTimeout(timer);

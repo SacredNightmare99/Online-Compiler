@@ -4,7 +4,10 @@ import { useEffect, useRef } from "react";
 import Editor from "@monaco-editor/react";
 import type { EditorFile, Language } from "@/app/types/compiler";
 import { FileDrawer } from "@/app/components/file-drawer";
+import { registerMonacoCompletionProviders } from "@/app/lib/monaco-suggestions";
 import { useState } from "react";
+
+let completionProvidersRegistered = false;
 
 type CompilerWorkspaceProps = {
   authStatus: "loading" | "authenticated" | "unauthenticated";
@@ -189,6 +192,11 @@ export function CompilerWorkspace({
 
                 monacoInstance.editor.setTheme("gruvbox-dark");
 
+                if (!completionProvidersRegistered) {
+                  registerMonacoCompletionProviders(monacoInstance);
+                  completionProvidersRegistered = true;
+                }
+
                 editor.addCommand(
                   monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.Enter,
                   () => {
@@ -201,7 +209,7 @@ export function CompilerWorkspace({
                 minimap: { enabled: false },
                 automaticLayout: true,
                 scrollBeyondLastLine: false,
-                tabSize: 2,
+                tabSize: 4,
                 insertSpaces: true,
                 autoIndent: "advanced",
                 detectIndentation: false,
