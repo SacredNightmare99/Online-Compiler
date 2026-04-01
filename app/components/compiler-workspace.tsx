@@ -19,15 +19,14 @@ type CompilerWorkspaceProps = {
   loading: boolean;
   languageLoading: boolean;
   filesLoading: boolean;
-  canSave: boolean;
-  saveLabel: string;
+  saving: boolean;
   onSignIn: () => void;
   onSignOut: () => void;
   onLanguageChange: (languageId: string) => void;
   onSelectFile: (fileId: string) => void;
   onCreateFile: () => void;
   onRenameFile: (fileId: string, nextName: string) => void;
-  onSave: () => void;
+  onDeleteFile: (fileId: string) => void;
   onCodeChange: (value: string) => void;
   onStdinChange: (value: string) => void;
   onRun: () => void;
@@ -46,15 +45,14 @@ export function CompilerWorkspace({
   loading,
   languageLoading,
   filesLoading,
-  canSave,
-  saveLabel,
+  saving,
   onSignIn,
   onSignOut,
   onLanguageChange,
   onSelectFile,
   onCreateFile,
   onRenameFile,
-  onSave,
+  onDeleteFile,
   onCodeChange,
   onStdinChange,
   onRun,
@@ -82,6 +80,7 @@ export function CompilerWorkspace({
           setDrawerOpen(false);
         }}
         onRename={onRenameFile}
+        onDelete={onDeleteFile}
       />
 
       <header className="top-bar">
@@ -98,7 +97,9 @@ export function CompilerWorkspace({
           <div className="brand-block">
             <h1>Online Compiler</h1>
             <p>
-              {authStatus === "loading"
+              {saving
+                ? "Autosaving..."
+                : authStatus === "loading"
                 ? "Checking session..."
                 : sessionEmail
                   ? `Signed in as ${sessionEmail}`
@@ -119,21 +120,6 @@ export function CompilerWorkspace({
               </option>
             ))}
           </select>
-
-          {sessionEmail ? (
-            <button
-              type="button"
-              className="ghost-button"
-              disabled={!canSave}
-              onClick={onSave}
-            >
-              {saveLabel}
-            </button>
-          ) : (
-            <button type="button" className="ghost-button" onClick={onSignIn}>
-              Sign in to save
-            </button>
-          )}
 
           <button
             type="button"

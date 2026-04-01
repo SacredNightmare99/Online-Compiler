@@ -76,3 +76,32 @@ export async function PUT(
     },
   });
 }
+
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ id: string }> }
+) {
+  const session = await getServerSession(authOptions);
+  const email = session?.user?.email?.toLowerCase();
+
+  if (!email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await context.params;
+  if (!ObjectId.isValid(id)) {
+    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+  }
+
+  const db = await getDatabase();
+  const result = await db.collection<FileDocument>("code_files").deleteOne({
+    _id: new ObjectId(id),
+    userEmail: email,
+  });
+
+  if (result.deletedCount === 0) {
+    return NextResponse.json({ error: "File not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true });
+}

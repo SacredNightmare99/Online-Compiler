@@ -18,15 +18,14 @@ export default function Home() {
     loading,
     languageLoading,
     filesLoading,
-    canSave,
-    saveLabel,
+    saving,
     setStdin,
     setCode,
     selectLanguage,
     selectFile,
     createFile,
     renameFile,
-    saveActiveFile,
+    deleteFile,
     runCode,
   } = useCompiler({
     isAuthenticated: status === "authenticated",
@@ -48,15 +47,14 @@ export default function Home() {
       loading={loading}
       languageLoading={languageLoading}
       filesLoading={filesLoading}
-      canSave={canSave}
-      saveLabel={saveLabel}
+      saving={saving}
       onSignIn={() => signIn("google")}
       onSignOut={() => signOut()}
       onLanguageChange={selectLanguage}
       onSelectFile={selectFile}
       onCreateFile={createFile}
       onRenameFile={renameFile}
-      onSave={saveActiveFile}
+      onDeleteFile={deleteFile}
       onCodeChange={setCode}
       onStdinChange={setStdin}
       onRun={runCode}

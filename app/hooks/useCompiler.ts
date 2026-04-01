@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createUserFile,
+  deleteUserFile,
   getLanguages,
   getResult,
   getUserFiles,
@@ -23,15 +24,13 @@ type UseCompilerState = {
   languageLoading: boolean;
   filesLoading: boolean;
   saving: boolean;
-  canSave: boolean;
-  saveLabel: string;
   setStdin: (value: string) => void;
   setCode: (value: string) => void;
   selectLanguage: (languageId: string) => void;
   selectFile: (fileId: string) => void;
   createFile: () => void;
   renameFile: (fileId: string, nextName: string) => void;
-  saveActiveFile: () => Promise<void>;
+  deleteFile: (fileId: string) => Promise<void>;
   runCode: () => Promise<void>;
 };
 
@@ -44,6 +43,27 @@ type UseCompilerParams = {
 const CODE_LIMIT = 100_000;
 const POLL_INTERVAL_MS = 800;
 
+const EXTENSION_LANGUAGE_HINTS: Record<string, string[]> = {
+  py: ["python"],
+  js: ["javascript", "node"],
+  ts: ["typescript"],
+  jsx: ["javascript", "react"],
+  tsx: ["typescript", "react"],
+  java: ["java"],
+  c: ["c"],
+  h: ["c"],
+  cpp: ["c++", "cpp"],
+  cc: ["c++", "cpp"],
+  cxx: ["c++", "cpp"],
+  go: ["go", "golang"],
+  rs: ["rust"],
+  php: ["php"],
+  rb: ["ruby"],
+  cs: ["c#", "csharp", "dotnet"],
+  kt: ["kotlin"],
+  swift: ["swift"],
+};
+
 function createLocalId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
@@ -52,10 +72,65 @@ function createLocalId() {
   return `tmp-${Date.now()}`;
 }
 
-function createDefaultFile(languageId: string, index = 1): EditorFile {
+function hasCodeContent(code: string) {
+  return code.trim().length > 0;
+}
+
+function getFileExtension(fileName: string) {
+  const parts = fileName.toLowerCase().split(".");
+  if (parts.length < 2) {
+    return "";
+  }
+
+  return parts[parts.length - 1];
+}
+
+function inferLanguageFromFileName(fileName: string, languages: Language[]) {
+  const extension = getFileExtension(fileName);
+  if (!extension) {
+    return "";
+  }
+
+  const hints = EXTENSION_LANGUAGE_HINTS[extension];
+  if (!hints || hints.length === 0) {
+    return "";
+  }
+
+  const normalized = languages.map((language) => ({
+    id: language.id,
+    value: `${language.id} ${language.name}`.toLowerCase(),
+  }));
+
+  for (const hint of hints) {
+    const match = normalized.find((language) => language.value.includes(hint));
+    if (match) {
+      return match.id;
+    }
+  }
+
+  return "";
+}
+
+function inferDefaultExtension(languageId: string, languages: Language[]) {
+  const target = languages.find((language) => language.id === languageId);
+  const value = `${languageId} ${target?.name || ""}`.toLowerCase();
+
+  const matchingEntry = Object.entries(EXTENSION_LANGUAGE_HINTS).find(([, hints]) =>
+    hints.some((hint) => value.includes(hint))
+  );
+
+  return matchingEntry?.[0] || "txt";
+}
+
+function createFileName(languageId: string, index: number, languages: Language[]) {
+  const ext = inferDefaultExtension(languageId, languages);
+  return `untitled-${index}.${ext}`;
+}
+
+function createDefaultFile(languageId: string, languages: Language[], index = 1): EditorFile {
   return {
     id: createLocalId(),
-    name: `untitled-${index}`,
+    name: createFileName(languageId, index, languages),
     language: languageId,
     code: "",
     isDirty: false,
@@ -86,9 +161,6 @@ export function useCompiler({
 
   const activeLanguage = activeFile?.language || "";
   const activeCode = activeFile?.code || "";
-
-  const canSave = isAuthenticated && Boolean(activeFile);
-  const saveLabel = saving ? "Saving..." : "Save";
 
   const ensureActiveFile = useCallback((nextFiles: EditorFile[]) => {
     if (nextFiles.length === 0) {
@@ -136,7 +208,7 @@ export function useCompiler({
               return previous;
             }
 
-            return [createDefaultFile(first.id)];
+            return [createDefaultFile(first.id, backendLanguages)];
           });
         } else {
           setOutput("No languages available.");
@@ -174,7 +246,7 @@ export function useCompiler({
             return previous;
           }
 
-          return [createDefaultFile(languages[0].id)];
+          return [createDefaultFile(languages[0].id, languages)];
         });
         return;
       }
@@ -193,7 +265,7 @@ export function useCompiler({
         }
 
         if (remoteFiles.length === 0) {
-          const initial = [createDefaultFile(languages[0].id)];
+          const initial = [createDefaultFile(languages[0].id, languages)];
           setFiles(initial);
           ensureActiveFile(initial);
         } else {
@@ -251,18 +323,44 @@ export function useCompiler({
   }, [activeFileId]);
 
   const selectLanguage = useCallback((languageId: string) => {
-    setFiles((previous) =>
-      previous.map((file) =>
+    setFiles((previous) => {
+      const active = previous.find((file) => file.id === activeFileId);
+      if (!active) {
+        return previous;
+      }
+
+      if (active.language === languageId) {
+        return previous;
+      }
+
+      if (hasCodeContent(active.code)) {
+        const created: EditorFile = {
+          id: createLocalId(),
+          name: createFileName(languageId, previous.length + 1, languages),
+          language: languageId,
+          code: "",
+          isDirty: false,
+        };
+
+        setActiveFileId(created.id);
+        setOutput("Created a new file for the selected language to protect existing code.");
+        return [created, ...previous];
+      }
+
+      return previous.map((file) =>
         file.id === activeFileId
           ? {
               ...file,
               language: languageId,
+              name: hasCodeContent(file.code)
+                ? file.name
+                : createFileName(languageId, 1, languages),
               isDirty: true,
             }
           : file
-      )
-    );
-  }, [activeFileId]);
+      );
+    });
+  }, [activeFileId, languages]);
 
   const selectFile = useCallback((fileId: string) => {
     setActiveFileId(fileId);
@@ -277,7 +375,7 @@ export function useCompiler({
     }
 
     setFiles((previous) => {
-      const created = createDefaultFile(defaultLanguage, previous.length + 1);
+      const created = createDefaultFile(defaultLanguage, languages, previous.length + 1);
       const nextFiles = [created, ...previous];
       setActiveFileId(created.id);
       return nextFiles;
@@ -296,61 +394,103 @@ export function useCompiler({
           ? {
               ...file,
               name: sanitized,
+              language: inferLanguageFromFileName(sanitized, languages) || file.language,
               isDirty: true,
             }
           : file
       )
     );
-  }, []);
+  }, [languages]);
 
-  const saveActiveFile = useCallback(async () => {
-    if (!isAuthenticated || !activeFile) {
-      setOutput("Sign in to save files to your account.");
+  const deleteFile = useCallback(async (fileId: string) => {
+    const current = files.find((file) => file.id === fileId);
+    if (!current) {
       return;
     }
 
-    const payload = {
-      name: activeFile.name,
-      language: activeFile.language,
-      code: activeFile.code,
-    };
-
-    try {
-      setSaving(true);
-      const response = activeFile.dbId
-        ? await updateUserFile(activeFile.dbId, payload)
-        : await createUserFile(payload);
-
-      const saved = response?.file as PersistedCodeFile | undefined;
-      if (!saved) {
-        setOutput("Unexpected save response.");
+    if (isAuthenticated && current.dbId) {
+      try {
+        await deleteUserFile(current.dbId);
+      } catch {
+        setOutput("Failed to delete file.");
         return;
       }
-
-      setFiles((previous) =>
-        previous.map((file) =>
-          file.id === activeFile.id
-            ? {
-                ...file,
-                id: saved.id,
-                dbId: saved.id,
-                name: saved.name,
-                language: saved.language,
-                code: saved.code,
-                isDirty: false,
-              }
-            : file
-        )
-      );
-
-      setActiveFileId(saved.id);
-      setOutput("Saved.");
-    } catch {
-      setOutput("Failed to save file.");
-    } finally {
-      setSaving(false);
     }
-  }, [activeFile, isAuthenticated]);
+
+    setFiles((previous) => {
+      const remaining = previous.filter((file) => file.id !== fileId);
+      if (remaining.length > 0) {
+        return remaining;
+      }
+
+      const fallbackLanguage = activeLanguage || languages[0]?.id || "";
+      if (!fallbackLanguage) {
+        return [];
+      }
+
+      return [createDefaultFile(fallbackLanguage, languages, 1)];
+    });
+  }, [activeLanguage, files, isAuthenticated, languages]);
+
+  useEffect(() => {
+    if (!isAuthenticated || saving) {
+      return;
+    }
+
+    const dirtyFile = files.find((file) => file.isDirty);
+    if (!dirtyFile) {
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      const payload = {
+        name: dirtyFile.name,
+        language: dirtyFile.language,
+        code: dirtyFile.code,
+      };
+
+      try {
+        setSaving(true);
+        const response = dirtyFile.dbId
+          ? await updateUserFile(dirtyFile.dbId, payload)
+          : await createUserFile(payload);
+
+        const saved = response?.file as PersistedCodeFile | undefined;
+        if (!saved) {
+          setOutput("Autosave failed.");
+          return;
+        }
+
+        setFiles((previous) =>
+          previous.map((file) =>
+            file.id === dirtyFile.id
+              ? {
+                  ...file,
+                  id: saved.id,
+                  dbId: saved.id,
+                  name: saved.name,
+                  language: saved.language,
+                  code: saved.code,
+                  isDirty: false,
+                }
+              : file
+          )
+        );
+
+        setActiveFileId((previousId) =>
+          previousId === dirtyFile.id ? saved.id : previousId
+        );
+      } catch {
+        setOutput("Autosave failed.");
+      } finally {
+        setSaving(false);
+      }
+    }, 900);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [files, isAuthenticated, saving]);
 
   const runCode = useCallback(async () => {
     if (!activeLanguage) {
@@ -421,15 +561,13 @@ export function useCompiler({
     languageLoading,
     filesLoading,
     saving,
-    canSave,
-    saveLabel,
     setStdin,
     setCode,
     selectLanguage,
     selectFile,
     createFile,
     renameFile,
-    saveActiveFile,
+    deleteFile,
     runCode,
   };
 }

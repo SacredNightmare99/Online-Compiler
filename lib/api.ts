@@ -91,3 +91,15 @@ export async function updateUserFile(fileId: string, payload: FilePayload) {
 
   return res.json();
 }
+
+export async function deleteUserFile(fileId: string) {
+  const res = await fetch(`/api/files/${fileId}`, {
+    method: "DELETE",
+  });
+
+  if (!res.ok) {
+    throw new Error("Failed to delete file");
+  }
+
+  return res.json();
+}

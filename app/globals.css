@@ -296,6 +296,29 @@ textarea {
   text-align: left;
 }
 
+.file-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.file-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.file-name-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text);
+  padding: 7px 8px;
+}
+
 .mini-button {
   border: 1px solid var(--border);
   background: var(--bg-elevated);
@@ -309,6 +332,11 @@ textarea {
 .mini-button:hover {
   color: var(--text);
   border-color: var(--accent);
+}
+
+.mini-button.danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
 }
 
 .file-item.is-active {
