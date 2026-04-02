@@ -4,8 +4,10 @@ import { useEffect, useRef } from "react";
 import Editor from "@monaco-editor/react";
 import type { EditorFile, Language } from "@/app/types/compiler";
 import { FileDrawer } from "@/app/components/file-drawer";
+import { AIChat } from "@/app/components/ai-chat";
 import { registerMonacoCompletionProviders } from "@/app/lib/monaco-suggestions";
 import { useState } from "react";
+import "@/app/styles/ai-chat.css";
 
 let completionProvidersRegistered = false;
 
@@ -61,11 +63,41 @@ export function CompilerWorkspace({
   onRun,
 }: CompilerWorkspaceProps) {
   const runActionRef = useRef(onRun);
+  const editorRef = useRef<any>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   useEffect(() => {
     runActionRef.current = onRun;
   }, [onRun]);
+
+  const handleApplyCode = (codeToApply: string) => {
+    if (editorRef.current) {
+      const selection = editorRef.current.getSelection();
+
+      if (selection && !selection.isEmpty()) {
+        editorRef.current.executeEdits("ai-apply", [
+          {
+            range: selection,
+            text: codeToApply,
+          },
+        ]);
+      } else {
+        const position = editorRef.current.getPosition();
+        editorRef.current.executeEdits("ai-apply", [
+          {
+            range: {
+              startLineNumber: position.lineNumber,
+              startColumn: position.column,
+              endLineNumber: position.lineNumber,
+              endColumn: position.column,
+            },
+            text: codeToApply + "\n",
+          },
+        ]);
+      }
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -127,6 +159,15 @@ export function CompilerWorkspace({
           <button
             type="button"
             className="primary-button"
+            onClick={() => setIsChatOpen(true)}
+            title="Open AI Assistant"
+          >
+            AI
+          </button>
+
+          <button
+            type="button"
+            className="primary-button"
             disabled={loading || languageLoading || !selectedLanguage}
             onClick={onRun}
           >
@@ -161,6 +202,7 @@ export function CompilerWorkspace({
               theme="gruvbox-dark"
               onChange={(value) => onCodeChange(value ?? "")}
               onMount={(editor, monacoInstance) => {
+                editorRef.current = editor;
                 monacoInstance.editor.defineTheme("gruvbox-dark", {
                   base: "vs-dark",
                   inherit: true,
@@ -233,6 +275,14 @@ export function CompilerWorkspace({
           </pre>
         </section>
       </main>
+
+      <AIChat
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        currentCode={code}
+        currentLanguage={selectedLanguage}
+        onApplyCode={handleApplyCode}
+      />
     </div>
   );
 }
